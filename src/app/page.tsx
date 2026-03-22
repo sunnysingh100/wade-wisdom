@@ -6,6 +6,8 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  thought?: string;
+  source?: "kb" | "web";
 }
 
 export default function Home() {
@@ -50,6 +52,7 @@ export default function Home() {
       id: (Date.now() + 1).toString(),
       role: "assistant",
       content: "",
+      thought: "",
     };
     setMessages((prev) => [...prev, assistantMessage]);
 
@@ -69,15 +72,47 @@ export default function Home() {
 
       if (reader) {
         let accumulated = "";
+        let usedWebSearch = false;
+        
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           accumulated += decoder.decode(value, { stream: true });
-          const current = accumulated;
+
+          // Detect web search source marker
+          if (accumulated.includes("[SOURCE:web]")) {
+            usedWebSearch = true;
+            accumulated = accumulated.replace(/\n?\[SOURCE:web\]\n?/g, "");
+          }
+
+          // Parse thoughts using <think> tags
+          let thought = "";
+          let finalContent = accumulated;
+          const thoughtMatch = finalContent.match(/<think>([\s\S]*?)<\/think>/g);
+          
+          if (thoughtMatch) {
+            // Extract all thought blocks and join them
+            thought = thoughtMatch.map(t => t.replace(/<\/?think>/g, '').trim()).join('\n\n');
+            // Remove thought blocks from the content directly
+            finalContent = finalContent.replace(/<think>([\s\S]*?)<\/think>\n?/g, '');
+          }
+          
+          // Also check for unclosed thought blocks if we're mid-stream
+          const unclosedMatch = finalContent.match(/<think>([\s\S]*)$/);
+          if (unclosedMatch) {
+             thought += (thought ? "\n\n" : "") + unclosedMatch[1].trim();
+             finalContent = finalContent.replace(/<think>([\s\S]*)$/, '');
+          }
+
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantMessage.id
-                ? { ...msg, content: current }
+                ? {
+                    ...msg,
+                    content: finalContent.replace(/^[\s\n]+/, ''), // Trim leading whitespace left over from thoughts
+                    thought: thought,
+                    source: usedWebSearch ? "web" : "kb",
+                  }
                 : msg
             )
           );
@@ -294,12 +329,24 @@ export default function Home() {
                 >
                   <div className="msg-meta">
                     {msg.role === "user" ? "You" : "Wade Wisdom"}
+                    {msg.role === "assistant" && msg.source === "web" && msg.content && (
+                      <span className="source-badge source-web">🌐 Web Source</span>
+                    )}
+                    {msg.role === "assistant" && msg.source === "kb" && msg.content && (
+                      <span className="source-badge source-kb">📚 Knowledge Base</span>
+                    )}
                   </div>
                   <div className="msg-body">
-                    {msg.role === "assistant" && !msg.content && isLoading ? (
+                    {msg.role === "assistant" && msg.thought && (
+                       <details className="thought-process">
+                          <summary>Thought Process</summary>
+                          <div className="thought-content">{msg.thought}</div>
+                       </details>
+                    )}
+                    {msg.role === "assistant" && !msg.content && !msg.thought && isLoading ? (
                       <span className="thinking">Searching knowledge base…</span>
                     ) : (
-                      msg.content
+                      <div dangerouslySetInnerHTML={{ __html: msg.content.replace(/\ng/, "<br />") }} />
                     )}
                   </div>
                 </div>

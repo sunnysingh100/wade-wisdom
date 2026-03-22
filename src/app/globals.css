@@ -440,6 +440,37 @@ body {
 
 .msg-ai .msg-meta {
   color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Source badges */
+.source-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  animation: badgeFade 0.4s ease-out;
+}
+
+.source-kb {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border: 1px solid rgba(212, 132, 90, 0.2);
+}
+
+.source-web {
+  background: rgba(100, 160, 230, 0.1);
+  color: #7ab3e8;
+  border: 1px solid rgba(100, 160, 230, 0.15);
+}
+
+@keyframes badgeFade {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .msg-body {
@@ -448,10 +479,84 @@ body {
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .msg-user .msg-body {
   color: var(--text-secondary);
+}
+
+/* Thought Process */
+.thought-process {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+}
+
+.thought-process[open] {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+.thought-process summary {
+  padding: 10px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  list-style-type: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: color 0.2s ease;
+}
+
+.thought-process summary:hover {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.thought-process summary::-webkit-details-marker {
+  display: none;
+}
+
+.thought-process summary::before {
+  content: "▶";
+  font-size: 10px;
+  transition: transform 0.2s ease;
+  opacity: 0.6;
+}
+
+.thought-process[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.thought-process[open] summary {
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-secondary);
+}
+
+.thought-content {
+  padding: 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+  max-height: 400px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.thought-content::-webkit-scrollbar { width: 4px; }
+.thought-content::-webkit-scrollbar-track { background: transparent; }
+.thought-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
 }
 
 .thinking {
