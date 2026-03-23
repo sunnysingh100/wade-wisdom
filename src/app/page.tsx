@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, FormEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Message {
   id: string;
@@ -9,6 +11,13 @@ interface Message {
   thought?: string;
   source?: "kb" | "web";
 }
+
+/**
+ * Streaming signal constants — must match the API route exactly.
+ * These use a unique unicode-bracketed prefix that the LLM will never
+ * output spontaneously, eliminating false-positive risk.
+ */
+const SIGNAL_RE = /⟦__WW:SOURCE:(web|kb)⟧/g;
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -72,18 +81,25 @@ export default function Home() {
 
       if (reader) {
         let accumulated = "";
-        let usedWebSearch = false;
+        let detectedSource: "kb" | "web" | undefined = undefined;
         
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           accumulated += decoder.decode(value, { stream: true });
 
-          // Detect web search source marker
-          if (accumulated.includes("[SOURCE:web]")) {
-            usedWebSearch = true;
-            accumulated = accumulated.replace(/\n?\[SOURCE:web\]\n?/g, "");
+          // Detect source signals (unique sentinel tokens from the API)
+          let match;
+          while ((match = SIGNAL_RE.exec(accumulated)) !== null) {
+            if (match[1] === "web") {
+              detectedSource = "web";
+            } else if (match[1] === "kb" && detectedSource !== "web") {
+              // Web takes precedence if both are used (fallback scenario)
+              detectedSource = "kb";
+            }
           }
+          // Strip all signal tokens from visible text
+          accumulated = accumulated.replace(SIGNAL_RE, "");
 
           // Parse thoughts using <think> tags
           let thought = "";
@@ -111,7 +127,7 @@ export default function Home() {
                     ...msg,
                     content: finalContent.replace(/^[\s\n]+/, ''), // Trim leading whitespace left over from thoughts
                     thought: thought,
-                    source: usedWebSearch ? "web" : "kb",
+                    source: detectedSource,
                   }
                 : msg
             )
@@ -346,7 +362,11 @@ export default function Home() {
                     {msg.role === "assistant" && !msg.content && !msg.thought && isLoading ? (
                       <span className="thinking">Searching knowledge base…</span>
                     ) : (
-                      <div dangerouslySetInnerHTML={{ __html: msg.content.replace(/\ng/, "<br />") }} />
+                      <div className="markdown-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
                     )}
                   </div>
                 </div>

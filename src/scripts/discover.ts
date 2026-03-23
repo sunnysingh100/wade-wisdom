@@ -17,6 +17,9 @@ import { mistral } from "@ai-sdk/mistral";
 import { UpstashVector } from "@mastra/upstash";
 import * as fs from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -24,6 +27,7 @@ import * as path from "path";
 const INDEX_NAME = "wade_knowledge";
 const EMBEDDING_MODEL = "mistral-embed";
 const EMBEDDING_DIMENSION = 1024;
+const EMBED_BATCH_SIZE = 50; // Max chunks per embedMany call to avoid API limits
 
 /** File that tracks which URLs we've already processed */
 const DISCOVERY_LOG_PATH = path.join(
@@ -51,6 +55,8 @@ const USER_AGENT =
 interface DiscoveryLog {
   lastRun: string | null;
   processedUrls: Record<string, { addedAt: string; title: string }>;
+  /** SHA-256 hashes of ingested content, keyed by hash → source URL */
+  contentHashes?: Record<string, string>;
 }
 
 interface SearchResult {
@@ -74,6 +80,7 @@ export interface DiscoveryReport {
   newUrlsDiscovered: number;
   documentsIngested: number;
   chunksCreated: number;
+  duplicateContentSkipped: number;
   errors: string[];
 }
 
@@ -82,16 +89,39 @@ export interface DiscoveryReport {
 function loadDiscoveryLog(): DiscoveryLog {
   try {
     if (fs.existsSync(DISCOVERY_LOG_PATH)) {
-      return JSON.parse(fs.readFileSync(DISCOVERY_LOG_PATH, "utf-8"));
+      const log = JSON.parse(fs.readFileSync(DISCOVERY_LOG_PATH, "utf-8"));
+      // Migrate older logs that don't have contentHashes
+      if (!log.contentHashes) log.contentHashes = {};
+      return log;
     }
-  } catch {
-    // Corrupted file — start fresh
+  } catch (err) {
+    console.warn(`⚠️ Discovery log corrupted or unreadable, creating backup and starting fresh.`);
+    // Backup corrupted file so data isn't silently lost
+    try {
+      const backupPath = DISCOVERY_LOG_PATH + `.backup-${Date.now()}`;
+      if (fs.existsSync(DISCOVERY_LOG_PATH)) {
+        fs.copyFileSync(DISCOVERY_LOG_PATH, backupPath);
+        console.log(`   Backed up corrupted log to: ${backupPath}`);
+      }
+    } catch { /* best effort */ }
   }
-  return { lastRun: null, processedUrls: {} };
+  return { lastRun: null, processedUrls: {}, contentHashes: {} };
 }
 
 function saveDiscoveryLog(log: DiscoveryLog): void {
-  fs.writeFileSync(DISCOVERY_LOG_PATH, JSON.stringify(log, null, 2), "utf-8");
+  // Atomic write: write to temp file, then rename
+  const tmpPath = DISCOVERY_LOG_PATH + ".tmp";
+  fs.writeFileSync(tmpPath, JSON.stringify(log, null, 2), "utf-8");
+  fs.renameSync(tmpPath, DISCOVERY_LOG_PATH);
+}
+
+// ─── Content hashing ─────────────────────────────────────────────────
+
+/** Generate SHA-256 hash of normalized content for deduplication */
+function hashContent(text: string): string {
+  // Normalize whitespace and case for consistent hashing
+  const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
+  return crypto.createHash("sha256").update(normalized).digest("hex");
 }
 
 // ─── Web search (Serper.dev + DuckDuckGo fallback) ──────────────────
@@ -290,7 +320,7 @@ function cleanUrl(url: string): string {
 async function extractPageContent(url: string): Promise<string | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const timeout = setTimeout(() => controller.abort(), 15_000);
 
     const response = await fetch(url, {
       headers: { "User-Agent": USER_AGENT },
@@ -308,33 +338,19 @@ async function extractPageContent(url: string): Promise<string | null> {
 
     const html = await response.text();
 
-    // Extract meaningful text from HTML
-    let text = html
-      // Remove scripts, styles, nav, footer
-      .replace(/<script[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/<nav[\s\S]*?<\/nav>/gi, "")
-      .replace(/<footer[\s\S]*?<\/footer>/gi, "")
-      .replace(/<header[\s\S]*?<\/header>/gi, "")
-      // Strip remaining HTML tags
-      .replace(/<[^>]*>/g, " ")
-      // Clean up entities
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&#x27;/g, "'")
-      .replace(/&nbsp;/g, " ")
-      // Collapse whitespace
-      .replace(/\s+/g, " ")
-      .trim();
+    // --- Strategy 1: Use @mozilla/readability for high-quality extraction ---
+    let text = extractWithReadability(html, url);
 
-    // Only keep pages with substantial content
-    if (text.length < 200) return null;
+    // --- Strategy 2: Fallback to regex-based extraction ---
+    if (!text) {
+      text = extractWithRegex(html);
+    }
 
-    // Cap at ~5000 chars to keep embeddings focused
-    if (text.length > 5000) {
-      text = text.slice(0, 5000) + "…";
+    if (!text || text.length < 200) return null;
+
+    // Cap at ~8000 chars to give Readability articles more room
+    if (text.length > 8000) {
+      text = text.slice(0, 8000) + "…";
     }
 
     return text;
@@ -343,20 +359,77 @@ async function extractPageContent(url: string): Promise<string | null> {
   }
 }
 
+/** Extract article text using Mozilla's Readability (same engine as Firefox Reader View) */
+function extractWithReadability(html: string, url: string): string | null {
+  try {
+    const { document } = parseHTML(html);
+    // Readability needs a base URL for resolving relative links
+    if (document.baseURI !== url) {
+      const base = document.createElement("base");
+      base.setAttribute("href", url);
+      document.head?.appendChild(base);
+    }
+    const reader = new Readability(document as any);
+    const article = reader.parse();
+    if (article && article.textContent) {
+      const cleaned = article.textContent.replace(/\s+/g, " ").trim();
+      return cleaned.length >= 200 ? cleaned : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fallback regex extractor for pages Readability can't parse */
+function extractWithRegex(html: string): string | null {
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+    .replace(/<header[\s\S]*?<\/header>/gi, "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text.length >= 200 ? text : null;
+}
+
 // ─── Relevance check ─────────────────────────────────────────────────
 
 /**
- * Quick heuristic: does the page content mention Wade Foster or Zapier enough?
+ * Improved heuristic: checks the content AND title for Wade Foster / Zapier relevance.
+ * Uses full-name matching to avoid false positives on generic "Wade" mentions.
+ *
+ * Scoring:
+ * - "wade foster" (full name) = 3 points each
+ * - "zapier" = 1 point each
+ * - "wade" alone only counts if doc title also mentions foster/zapier (avoids false positives)
+ * - Threshold: 3 points minimum
  */
-function isRelevantContent(content: string): boolean {
+function isRelevantContent(content: string, title?: string): boolean {
   const lower = content.toLowerCase();
-  const wadeCount =
-    (lower.match(/wade foster/g) || []).length +
-    (lower.match(/wade/g) || []).length * 0.3;
+  const lowerTitle = (title || "").toLowerCase();
+
+  const fullNameCount = (lower.match(/wade\s+foster/g) || []).length;
   const zapierCount = (lower.match(/zapier/g) || []).length;
 
-  // Must mention Wade or Zapier at least a few times
-  return wadeCount >= 2 || zapierCount >= 3 || (wadeCount >= 1 && zapierCount >= 1);
+  // Only count bare "wade" if the title confirms this is about the right Wade
+  const titleRelevant = lowerTitle.includes("foster") || lowerTitle.includes("zapier");
+  const bareWadeCount = titleRelevant
+    ? (lower.match(/\bwade\b/g) || []).length - fullNameCount
+    : 0;
+
+  const score = fullNameCount * 3 + zapierCount * 1 + bareWadeCount * 0.5;
+
+  return score >= 3;
 }
 
 // ─── Main discovery flow ─────────────────────────────────────────────
@@ -370,6 +443,7 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
     newUrlsDiscovered: 0,
     documentsIngested: 0,
     chunksCreated: 0,
+    duplicateContentSkipped: 0,
     errors: [],
   };
 
@@ -377,8 +451,10 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
 
   // 1 — Load discovery log
   const log = loadDiscoveryLog();
+  if (!log.contentHashes) log.contentHashes = {};
+
   console.log(
-    `📋 Discovery log: ${Object.keys(log.processedUrls).length} URLs already processed`
+    `📋 Discovery log: ${Object.keys(log.processedUrls).length} URLs already processed, ${Object.keys(log.contentHashes).length} content hashes tracked`
   );
   if (log.lastRun) {
     console.log(`   Last run: ${log.lastRun}\n`);
@@ -429,7 +505,7 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
     return report;
   }
 
-  // 4 — Fetch & filter content
+  // 4 — Fetch & filter content (with content-hash deduplication)
   const documents: DiscoveredDocument[] = [];
 
   for (const [url, result] of uniqueUrls) {
@@ -438,7 +514,6 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
     const content = await extractPageContent(result.url);
     if (!content) {
       console.log(`   ⚠️ Could not extract content, skipping`);
-      // Mark as processed so we don't retry
       log.processedUrls[url] = {
         addedAt: new Date().toISOString(),
         title: `[SKIPPED] ${result.title}`,
@@ -446,7 +521,19 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
       continue;
     }
 
-    if (!isRelevantContent(content)) {
+    // Content-hash deduplication: same article on different URLs
+    const contentHash = hashContent(content);
+    if (log.contentHashes![contentHash]) {
+      console.log(`   ⚠️ Duplicate content (same as ${log.contentHashes![contentHash]}), skipping`);
+      report.duplicateContentSkipped++;
+      log.processedUrls[url] = {
+        addedAt: new Date().toISOString(),
+        title: `[DUPLICATE] ${result.title}`,
+      };
+      continue;
+    }
+
+    if (!isRelevantContent(content, result.title)) {
       console.log(`   ⚠️ Content not relevant enough, skipping`);
       log.processedUrls[url] = {
         addedAt: new Date().toISOString(),
@@ -490,7 +577,7 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
     dimension: EMBEDDING_DIMENSION,
   });
 
-  // 6 — Chunk, embed, and upsert each document
+  // 6 — Chunk, embed (in batches), and upsert each document
   for (const doc of documents) {
     console.log(`\n📄 Ingesting: ${doc.title}`);
 
@@ -525,18 +612,30 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
 
       console.log(`   📝 Generated ${texts.length} chunks`);
 
-      // Generate embeddings
-      const { embeddings } = await embedMany({
-        model: mistral.textEmbeddingModel(EMBEDDING_MODEL),
-        values: texts,
-      });
+      // Generate embeddings in batches to avoid API payload limits
+      const allEmbeddings: number[][] = [];
+      for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
+        const batch = texts.slice(i, i + EMBED_BATCH_SIZE);
+        const batchNum = Math.floor(i / EMBED_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(texts.length / EMBED_BATCH_SIZE);
 
-      console.log(`   🧮 Generated ${embeddings.length} embeddings`);
+        if (totalBatches > 1) {
+          console.log(`   🧮 Embedding batch ${batchNum}/${totalBatches} (${batch.length} chunks)`);
+        }
+
+        const { embeddings } = await embedMany({
+          model: mistral.textEmbeddingModel(EMBEDDING_MODEL),
+          values: batch,
+        });
+        allEmbeddings.push(...embeddings);
+      }
+
+      console.log(`   🧮 Generated ${allEmbeddings.length} embeddings total`);
 
       // Upsert into vector store
       await upstashVector.upsert({
         indexName: INDEX_NAME,
-        vectors: embeddings,
+        vectors: allEmbeddings,
         metadata: texts.map((text, i) => ({
           text,
           topic: "web-discovery",
@@ -552,12 +651,14 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
       report.documentsIngested++;
       console.log(`   ✅ Upserted ${texts.length} vectors`);
 
-      // Mark URL as processed
+      // Mark URL as processed + record content hash
       const normalizedUrl = doc.url.replace(/\/$/, "").toLowerCase();
+      const docHash = hashContent(doc.content);
       log.processedUrls[normalizedUrl] = {
         addedAt: new Date().toISOString(),
         title: doc.title,
       };
+      log.contentHashes![docHash] = normalizedUrl;
     } catch (err) {
       const msg = `Failed to ingest "${doc.title}": ${err}`;
       console.error(`   ❌ ${msg}`);
@@ -576,6 +677,7 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
   console.log(`   Queries run:        ${report.queriesRun}`);
   console.log(`   Raw results:        ${report.rawResultsFound}`);
   console.log(`   New URLs found:     ${report.newUrlsDiscovered}`);
+  console.log(`   Duplicates skipped: ${report.duplicateContentSkipped}`);
   console.log(`   Documents ingested: ${report.documentsIngested}`);
   console.log(`   Chunks created:     ${report.chunksCreated}`);
   if (report.errors.length > 0) {

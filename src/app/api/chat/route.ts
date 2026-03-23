@@ -1,5 +1,17 @@
 import { mastra } from "@/mastra";
 
+/**
+ * Streaming signal constants.
+ *
+ * These use a unique, non-natural prefix (⟦__WW:) that the LLM will never
+ * output accidentally, eliminating the false-positive risk of plaintext
+ * markers like "[SOURCE:web]".
+ */
+const SIGNAL_PREFIX = "⟦__WW:";
+const SIGNAL_SUFFIX = "⟧";
+const SOURCE_WEB_SIGNAL = `${SIGNAL_PREFIX}SOURCE:web${SIGNAL_SUFFIX}`;
+const SOURCE_KB_SIGNAL = `${SIGNAL_PREFIX}SOURCE:kb${SIGNAL_SUFFIX}`;
+
 export async function POST(req: Request) {
   const { messages } = await req.json();
   const lastMessage = messages[messages.length - 1];
@@ -10,6 +22,7 @@ export async function POST(req: Request) {
 
   // Track which tools were called so the frontend knows the source
   let usedWebSearch = false;
+  let usedKbSearch = false;
 
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
@@ -19,8 +32,10 @@ export async function POST(req: Request) {
           if (chunk.type === "tool-call") {
             if (chunk.payload.toolName === "wade-web-search") {
               usedWebSearch = true;
-              // Send a source indicator the frontend can parse
-              controller.enqueue(encoder.encode("\n[SOURCE:web]\n"));
+              controller.enqueue(encoder.encode(SOURCE_WEB_SIGNAL));
+            } else if (chunk.payload.toolName === "wade-kb-search") {
+              usedKbSearch = true;
+              controller.enqueue(encoder.encode(SOURCE_KB_SIGNAL));
             }
           }
           if ((chunk.type as string) === "reasoning") {

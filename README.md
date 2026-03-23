@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Wade Wisdom
 
-## Getting Started
+Wade Wisdom is an AI-powered knowledge assistant trained on Wade Foster's (co-founder & CEO of Zapier) public interviews, blog posts, essays, and podcasts. Built to share insights on startups, AI & automation, productivity, remote work, and company growth, this interactive chatbot emulates Wade's perspective — leveraging the latest Mistral models and a custom Retrieval-Augmented Generation (RAG) pipeline.
 
-First, run the development server:
+## 🚀 Key Features
+
+- **Interactive Chat Interface**: A modern, responsive chat UI supporting natural language queries.
+- **Thought Process Streaming**: Transparency into the AI's reasoning, rendering the model's `<think>` tags directly in the UI as collapsible elements.
+- **RAG & Knowledge Base**: Uses Mastra (`@mastra/core`, `@mastra/rag`) to retrieve contextually relevant insights from a vector knowledge base hosted on Upstash (`@mastra/upstash`).
+- **Autonomous Web Discovery**: Built-in cron jobs (`/api/cron/discover`) and ingestion scripts (`npm run discover`, `npm run ingest`) to automatically crawl, analyze, and absorb new content from the web into the knowledge base.
+- **Transparent Sourcing**: Automatically identifies and badges responses as either sourced from the internal "Knowledge Base" (📚) or gathered via a live "Web Source" (🌐) fallback search.
+- **Rich Markdown Rendering**: Leverages `react-markdown` and `remark-gfm` to beautifully render complex responses, including tables, lists, and formatted code blocks.
+
+## 🛠️ Tech Stack
+
+- **Framework**: [Next.js](https://nextjs.org/) (App Router, React 19)
+- **AI Models & Tooling**: [Mistral AI SDK](https://sdk.vercel.ai/providers/ai-sdk-providers/mistral), [Vercel AI SDK](https://sdk.vercel.ai/docs), [Mastra AI](https://mastra.ai/)
+- **Styling**: Tailwind CSS v4 & custom CSS (`globals.css`)
+- **Vector Database**: Upstash Vector for hosting and querying embeddings.
+- **Utilities**: `dotenv` for environment management, `linkedom` & `@mozilla/readability` for scraping web content.
+
+## 📦 Getting Started
+
+### Prerequisites
+
+- Node.js (v20 or higher)
+- npm, yarn, pnpm, or bun
+
+### 1. Installation
+
+Clone the repository and install the dependencies:
+
+```bash
+npm install
+# or
+yarn install
+# or
+pnpm install
+```
+
+### 2. Environment Variables
+
+Create a `.env` or `.env.local` file in the root directory. You'll need to set the required API keys for Mistral and other relevant services configured in the project.
+
+```env
+# Example .env file content
+MISTRAL_API_KEY="your-mistral-api-key"
+UPSTASH_VECTOR_REST_URL="your-upstash-url"
+UPSTASH_VECTOR_REST_TOKEN="your-upstash-token"
+```
+
+### 3. Running the Development Server
+
+Start the local server. The app should be accessible at [http://localhost:3000](http://localhost:3000).
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 4. Knowledge Base Operations
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+To manually trigger the ingestion or discovery of new knowledge base documents, you can use the built-in npm scripts:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Ingest explicit content**:
+  ```bash
+  npm run ingest
+  ```
+- **Run automated web discovery**:
+  ```bash
+  npm run discover
+  ```
 
-## Learn More
+## 📂 Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+- `src/app/`: Next.js App Router containing the main `page.tsx`, layout, and API routes (`/api/chat`, `/api/cron/discover`).
+- `src/content/`: Pre-defined source material or scraped data waiting to be ingested.
+- `src/mastra/`: Mastra agent configurations, workflows, and RAG definitions.
+- `src/scripts/`: Automation scripts like `discover.ts` and `ingest.ts`.
+- `public/`: Public static assets.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 💡 Customization
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+You can start modifying the UI by editing `src/app/page.tsx` and the core styles in `src/app/globals.css`. The application features a custom stream parser designed specifically to intercept sentinels and `thought` tags from the Mistral models, avoiding false-positive triggers and ensuring smooth frontend streaming.
 
-## Deploy on Vercel
+## 📝 License
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is open-source and available for configuration or further innovation under standard OSS guidelines.
