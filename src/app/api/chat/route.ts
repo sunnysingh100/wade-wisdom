@@ -27,6 +27,7 @@ export async function POST(req: Request) {
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
+      let isReasoning = false;
       try {
         for await (const chunk of result.fullStream) {
           if (chunk.type === "tool-call") {
@@ -39,11 +40,23 @@ export async function POST(req: Request) {
             }
           }
           if ((chunk.type as string) === "reasoning") {
-            controller.enqueue(encoder.encode(`\n<think>\n${(chunk as any).payload.text}\n</think>\n`));
-          }
-          if (chunk.type === "text-delta") {
+            if (!isReasoning) {
+              isReasoning = true;
+              controller.enqueue(encoder.encode(`\n<think>\n`));
+            }
+            controller.enqueue(encoder.encode((chunk as any).payload.text));
+          } else if (isReasoning && chunk.type === "text-delta") {
+            // Transition from reasoning to normal text
+            isReasoning = false;
+            controller.enqueue(encoder.encode(`\n</think>\n`));
+            controller.enqueue(encoder.encode(chunk.payload.text));
+          } else if (chunk.type === "text-delta") {
             controller.enqueue(encoder.encode(chunk.payload.text));
           }
+        }
+
+        if (isReasoning) {
+          controller.enqueue(encoder.encode(`\n</think>\n`));
         }
         controller.close();
       } catch (err) {

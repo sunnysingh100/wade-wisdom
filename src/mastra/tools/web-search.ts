@@ -139,7 +139,7 @@ function parseDuckDuckGoResults(
     /<div class="links_main links_deep result__body">[\s\S]*?<\/div>\s*<\/div>/g
   );
 
-  if (!resultBlocks) {
+  if (!resultBlocks || resultBlocks.length === 0) {
     const snippetPattern =
       /<a class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
     let match;

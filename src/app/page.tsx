@@ -116,9 +116,16 @@ export default function Home() {
           // Also check for unclosed thought blocks if we're mid-stream
           const unclosedMatch = finalContent.match(/<think>([\s\S]*)$/);
           if (unclosedMatch) {
-             thought += (thought ? "\n\n" : "") + unclosedMatch[1].trim();
+             let partialThought = unclosedMatch[1];
+             // It might end with a partial closing tag, e.g., "</th"
+             // We can strip trailing partial tags so they don't appear in the UI
+             partialThought = partialThought.replace(/<\/?t?h?i?n?k?>?$/, '');
+             thought += (thought ? "\n\n" : "") + partialThought.trim();
              finalContent = finalContent.replace(/<think>([\s\S]*)$/, '');
           }
+
+          // Check for partial opening tags at the end to prevent flickering "<thi"
+          finalContent = finalContent.replace(/<\/?t?h?i?n?k?>?$/, '');
 
           setMessages((prev) =>
             prev.map((msg) =>

@@ -14,7 +14,7 @@ export const kbSearchTool = new Proxy(baseKbSearchTool as any, {
   get: function(target, prop, receiver) {
     if (prop === "execute") {
       return async function(...args: any[]) {
-        const params = args[0];
+        const params = args[0] || {};
         const queryStr = params?.query || (params?.context && params?.context?.query) || (params?.inputData && params.inputData.query) || "unknown query";
         console.log(`\n[kb-search] 🕵️‍♂️ Engaging Knowledge Base for: "${queryStr}"`);
         const startTime = Date.now();
