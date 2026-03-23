@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# discovery log (local state)
+src/content/discovery-log.json
+
+# sqlite
+*.db
+*.db-shm
+*.db-wal

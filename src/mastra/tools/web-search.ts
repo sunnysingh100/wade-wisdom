@@ -6,7 +6,8 @@ import { z } from "zod";
  * When the knowledge base doesn't have answers, this tool searches the web
  * for publicly available information about Wade Foster and Zapier.
  *
- * Uses DuckDuckGo's instant-answer / HTML endpoint (no API key needed).
+ * It uses Tavily Search API for robust and accurate results, but defaults
+ * back to basic scraping (DuckDuckGo) if the API key is missing.
  */
 export const webSearchTool = createTool({
   id: "wade-web-search",
@@ -32,9 +33,55 @@ export const webSearchTool = createTool({
     source: z.literal("web"),
     message: z.string(),
   }),
-  execute: async ({ query }) => {
+  execute: async (args: any) => {
+    // In some Mastra versions, input is inside context, in others it is top-level.
+    const query = args?.query || args?.context?.query || args?.inputData?.query || "fallback query";
+    
+    console.log(`\n[web-search] 🌐 Launching external web search for: "${query}"`);
+    const startTime = Date.now();
+
     try {
-      // Use DuckDuckGo HTML search (no API key needed)
+      const tavilyKey = process.env.TAVILY_API_KEY;
+
+      if (tavilyKey) {
+        console.log(`[web-search] 📡 Using robust Tavily Search API`);
+        const response = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            api_key: tavilyKey,
+            query,
+            search_depth: "basic",
+            max_results: 5,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const results = data.results.map((r: any) => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.content,
+          }));
+
+          const duration = Date.now() - startTime;
+          console.log(`[web-search] ✅ Found ${results.length} external results via Tavily in ${duration}ms`);
+          
+          return {
+            results,
+            source: "web" as const,
+            message: `Found ${results.length} web results via Tavily. Note: These are from external web search, not the curated knowledge base.`,
+          };
+        } else {
+            console.warn(`[web-search] ⚠️ Tavily Search API failed: ${response.statusText}. Falling back to DuckDuckGo parsing.`);
+        }
+      } else {
+          console.log(`[web-search] ⚠️ No TAVILY_API_KEY found. Using DuckDuckGo fallback parser.`);
+      }
+
+      // Fallback: DuckDuckGo HTML search
       const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
 
       const response = await fetch(searchUrl, {
@@ -45,18 +92,14 @@ export const webSearchTool = createTool({
       });
 
       if (!response.ok) {
-        return {
-          results: [],
-          source: "web" as const,
-          message:
-            "Web search failed. I can still share general knowledge about this topic.",
-        };
+          throw new Error("DuckDuckGo request failed");
       }
 
       const html = await response.text();
-
-      // Parse DuckDuckGo HTML results
       const results = parseDuckDuckGoResults(html);
+
+      const duration = Date.now() - startTime;
+      console.log(`[web-search] ✅ Found ${results.slice(0, 5).length} external results via DuckDuckGo in ${duration}ms`);
 
       if (results.length === 0) {
         return {
@@ -68,11 +111,12 @@ export const webSearchTool = createTool({
       }
 
       return {
-        results: results.slice(0, 5), // Top 5 results
+        results: results.slice(0, 5),
         source: "web" as const,
-        message: `Found ${results.length} web results. Note: These are from web search, not from the curated knowledge base.`,
+        message: `Found ${results.slice(0, 5).length} web results. Note: These are from web search, not from the curated knowledge base.`,
       };
-    } catch {
+    } catch (error) {
+      console.error(`[web-search] ❌ Web search totally failed:`, error);
       return {
         results: [],
         source: "web" as const,
@@ -91,13 +135,11 @@ function parseDuckDuckGoResults(
 ): Array<{ title: string; url: string; snippet: string }> {
   const results: Array<{ title: string; url: string; snippet: string }> = [];
 
-  // Match result blocks - DuckDuckGo wraps results in <div class="result...">
   const resultBlocks = html.match(
     /<div class="links_main links_deep result__body">[\s\S]*?<\/div>\s*<\/div>/g
   );
 
   if (!resultBlocks) {
-    // Fallback: try to find result snippets with a simpler pattern
     const snippetPattern =
       /<a class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
     let match;
@@ -115,20 +157,16 @@ function parseDuckDuckGoResults(
         });
       }
     }
-
     return results;
   }
 
   for (const block of resultBlocks.slice(0, 5)) {
-    // Extract URL
     const urlMatch = block.match(
       /href="([^"]*)"[^>]*class="result__a"/
     ) || block.match(/class="result__a"[^>]*href="([^"]*)"/);
-    // Extract title
     const titleMatch = block.match(
       /<a class="result__a"[^>]*>([\s\S]*?)<\/a>/
     );
-    // Extract snippet
     const snippetMatch = block.match(
       /<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/
     );
@@ -163,7 +201,6 @@ function stripHtml(html: string): string {
 
 /** Clean DuckDuckGo redirect URLs */
 function cleanUrl(url: string): string {
-  // DuckDuckGo wraps URLs in redirect links
   const uddgMatch = url.match(/uddg=([^&]*)/);
   if (uddgMatch) {
     return decodeURIComponent(uddgMatch[1]);

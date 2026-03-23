@@ -1,13 +1,14 @@
 import { Mastra } from "@mastra/core";
-import { LibSQLVector } from "@mastra/libsql";
+import { UpstashVector } from "@mastra/upstash";
 import { wadeAgent } from "./agents/wade-agent";
 
-const libsqlVector = new LibSQLVector({
+const upstashVector = new UpstashVector({
   id: "wade-wisdom-vectors",
-  url: "file:///C:/Users/JULI/wade-wisdom/wade-wisdom.db",
+  url: process.env.UPSTASH_VECTOR_REST_URL!,
+  token: process.env.UPSTASH_VECTOR_REST_TOKEN!,
 });
 
 export const mastra = new Mastra({
   agents: { "wade-wisdom-agent": wadeAgent },
-  vectors: { libsqlVector },
+  vectors: { upstashVector },
 });
