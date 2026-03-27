@@ -65,6 +65,14 @@ interface SearchResult {
   snippet: string;
 }
 
+interface SerperResponse {
+  organic?: Array<{
+    title?: string;
+    link?: string;
+    snippet?: string;
+  }>;
+}
+
 interface DiscoveredDocument {
   title: string;
   url: string;
@@ -94,7 +102,7 @@ function loadDiscoveryLog(): DiscoveryLog {
       if (!log.contentHashes) log.contentHashes = {};
       return log;
     }
-  } catch (err) {
+  } catch {
     console.warn(`⚠️ Discovery log corrupted or unreadable, creating backup and starting fresh.`);
     // Backup corrupted file so data isn't silently lost
     try {
@@ -167,10 +175,10 @@ async function searchSerper(
       return [];
     }
 
-    const data = await response.json();
+    const data: SerperResponse = await response.json();
     const organic = data.organic || [];
 
-    return organic.map((r: any) => ({
+    return organic.map((r) => ({
       title: r.title || "",
       url: r.link || "",
       snippet: (r.snippet || "").slice(0, 500),
@@ -369,7 +377,7 @@ function extractWithReadability(html: string, url: string): string | null {
       base.setAttribute("href", url);
       document.head?.appendChild(base);
     }
-    const reader = new Readability(document as any);
+    const reader = new Readability(document as unknown as Document);
     const article = reader.parse();
     if (article && article.textContent) {
       const cleaned = article.textContent.replace(/\s+/g, " ").trim();

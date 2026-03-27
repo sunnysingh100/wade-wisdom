@@ -33,9 +33,9 @@ export const webSearchTool = createTool({
     source: z.literal("web"),
     message: z.string(),
   }),
-  execute: async (args: any) => {
+  execute: async (args: unknown) => {
     // In some Mastra versions, input is inside context, in others it is top-level.
-    const query = args?.query || args?.context?.query || args?.inputData?.query || "fallback query";
+    const query = extractQuery(args) || "fallback query";
     
     console.log(`\n[web-search] 🌐 Launching external web search for: "${query}"`);
     const startTime = Date.now();
@@ -59,8 +59,8 @@ export const webSearchTool = createTool({
         });
 
         if (response.ok) {
-          const data = await response.json();
-          const results = data.results.map((r: any) => ({
+          const data: TavilyResponse = await response.json();
+          const results = (data.results || []).map((r) => ({
             title: r.title,
             url: r.url,
             snippet: r.content,
@@ -121,11 +121,40 @@ export const webSearchTool = createTool({
         results: [],
         source: "web" as const,
         message:
-          "Web search encountered an error. I'll answer based on general knowledge instead.",
+          "Web search encountered an error. I could not verify this topic in Wade's curated knowledge base or current web sources.",
       };
     }
   },
 });
+
+interface TavilyResponse {
+  results?: Array<{
+    title: string;
+    url: string;
+    content: string;
+  }>;
+}
+
+function extractQuery(args: unknown): string | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  const record = args as Record<string, unknown>;
+  const query = record.query;
+  if (typeof query === "string" && query.trim()) return query;
+
+  const context = record.context;
+  if (context && typeof context === "object") {
+    const contextQuery = (context as Record<string, unknown>).query;
+    if (typeof contextQuery === "string" && contextQuery.trim()) return contextQuery;
+  }
+
+  const inputData = record.inputData;
+  if (inputData && typeof inputData === "object") {
+    const inputQuery = (inputData as Record<string, unknown>).query;
+    if (typeof inputQuery === "string" && inputQuery.trim()) return inputQuery;
+  }
+
+  return undefined;
+}
 
 /**
  * Parse DuckDuckGo HTML search results into structured data

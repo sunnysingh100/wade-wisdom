@@ -7,6 +7,24 @@ import { wadeKnowledge } from "../content/wade-knowledge";
 import { createWorkflow, createStep } from "@mastra/core/workflows";
 import { z } from "zod";
 
+const documentSchema = z.object({
+  content: z.string(),
+  topic: z.string(),
+  sourceType: z.string(),
+  title: z.string(),
+});
+
+const chunkSchema = z.object({
+  text: z.string(),
+  topic: z.string(),
+  sourceType: z.string(),
+  title: z.string(),
+  chunkIndex: z.number(),
+});
+
+type IngestionDocument = z.infer<typeof documentSchema>;
+type IngestionChunk = z.infer<typeof chunkSchema>;
+
 const upstashVector = new UpstashVector({
   id: "wade-wisdom-vectors",
   url: process.env.UPSTASH_VECTOR_REST_URL!,
@@ -17,16 +35,15 @@ const chunkingStep = createStep({
   id: "chunk-documents",
   description: "Chunks documents",
   inputSchema: z.object({
-    documents: z.array(z.any()),
+    documents: z.array(documentSchema),
   }),
   outputSchema: z.object({
-    chunks: z.array(z.any()),
+    chunks: z.array(chunkSchema),
   }),
   execute: async ({ inputData }) => {
     console.log("🚀 Starting Document Chunking Pipeline...\n");
-    const { documents } = inputData as any;
-    const allChunks: any[] = [];
-    let totalChunks = 0;
+    const { documents } = inputData as { documents: IngestionDocument[] };
+    const allChunks: IngestionChunk[] = [];
 
     for (const doc of documents) {
       console.log(`\n📄 Chunking Document: ${doc.title}`);
@@ -60,7 +77,6 @@ const chunkingStep = createStep({
           chunkIndex: i,
         });
       });
-      totalChunks += texts.length;
     }
 
     return { chunks: allChunks };
@@ -80,14 +96,16 @@ const embeddingStep = createStep({
     const previousStepResult = getStepResult("chunk-documents");
     
     // Safely extract chunks handling potential Mastra wrapper variations
-    let payload = previousStepResult as any;
-    if (payload?.status === 'success' && payload?.result) {
-        payload = payload.result;
-    } else if (payload?.output) {
-        payload = payload.output;
+    let payload: unknown = previousStepResult;
+    if (isRecord(payload) && payload.status === "success" && isRecord(payload.result)) {
+      payload = payload.result;
+    } else if (isRecord(payload) && isRecord(payload.output)) {
+      payload = payload.output;
     }
     
-    const chunks = payload?.chunks || [];
+    const chunks = isRecord(payload) && Array.isArray(payload.chunks)
+      ? payload.chunks.filter(isChunk)
+      : [];
 
     if (chunks.length === 0) {
       console.log("  ⚠️ No chunks to process, skipping embedding.");
@@ -102,7 +120,7 @@ const embeddingStep = createStep({
       dimension: 1024,
     });
 
-    const texts = chunks.map((c: any) => c.text);
+    const texts = chunks.map((c) => c.text);
 
     // Call Mistral API for all texts
     const { embeddings } = await embedMany({
@@ -126,7 +144,7 @@ const embeddingStep = createStep({
 const ingestionWorkflow = createWorkflow({
   id: "wade-ingestion",
   inputSchema: z.object({
-    documents: z.array(z.any()),
+    documents: z.array(documentSchema),
   }),
   outputSchema: z.object({
     success: z.boolean(),
@@ -148,10 +166,13 @@ async function runIngestion() {
       },
     });
     
-    if (result.status === 'success') {
+    if (result.status === "success") {
         console.log(`\n🎉 Ingestion Pipeline completed successfully!`);
     } else {
-        console.error(`\n❌ Ingestion Pipeline did not succeed. Status:`, result.status, (result as any).error || (result as any).tripwire);
+        const resultDetails = isRecord(result)
+          ? ("error" in result ? result.error : "tripwire" in result ? result.tripwire : undefined)
+          : undefined;
+        console.error(`\n❌ Ingestion Pipeline did not succeed. Status:`, result.status, resultDetails);
     }
   } catch (error) {
     console.error(`\n🔥 Fatal Ingestion Pipeline Error:`, error);
@@ -159,3 +180,12 @@ async function runIngestion() {
 }
 
 runIngestion();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isChunk(value: unknown): value is IngestionChunk {
+  const parsed = chunkSchema.safeParse(value);
+  return parsed.success;
+}

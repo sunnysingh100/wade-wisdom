@@ -8,7 +8,6 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  thought?: string;
   source?: "kb" | "web";
 }
 
@@ -61,7 +60,6 @@ export default function Home() {
       id: (Date.now() + 1).toString(),
       role: "assistant",
       content: "",
-      thought: "",
     };
     setMessages((prev) => [...prev, assistantMessage]);
 
@@ -101,24 +99,8 @@ export default function Home() {
           // Strip all signal tokens from visible text
           accumulated = accumulated.replace(SIGNAL_RE, "");
 
-          // Parse thoughts using <think> tags
-          let thought = "";
-          let finalContent = accumulated;
-          const thoughtMatch = finalContent.match(/<think>([\s\S]*?)<\/think>/g);
-          
-          if (thoughtMatch) {
-            // Extract all thought blocks and join them
-            thought = thoughtMatch.map(t => t.replace(/<\/?think>/g, '').trim()).join('\n\n');
-            // Remove thought blocks from the content directly
-            finalContent = finalContent.replace(/<think>([\s\S]*?)<\/think>\n?/g, '');
-          }
-          
-          // Also check for unclosed thought blocks if we're mid-stream
-          const unclosedMatch = finalContent.match(/<think>([\s\S]*)$/);
-          if (unclosedMatch) {
-             thought += (thought ? "\n\n" : "") + unclosedMatch[1].trim();
-             finalContent = finalContent.replace(/<think>([\s\S]*)$/, '');
-          }
+          // Strip any accidental <think> tags from visible text.
+          const finalContent = accumulated.replace(/<think>[\s\S]*?<\/think>\n?/g, "");
 
           setMessages((prev) =>
             prev.map((msg) =>
@@ -126,7 +108,6 @@ export default function Home() {
                 ? {
                     ...msg,
                     content: finalContent.replace(/^[\s\n]+/, ''), // Trim leading whitespace left over from thoughts
-                    thought: thought,
                     source: detectedSource,
                   }
                 : msg
@@ -353,13 +334,7 @@ export default function Home() {
                     )}
                   </div>
                   <div className="msg-body">
-                    {msg.role === "assistant" && msg.thought && (
-                       <details className="thought-process">
-                          <summary>Thought Process</summary>
-                          <div className="thought-content">{msg.thought}</div>
-                       </details>
-                    )}
-                    {msg.role === "assistant" && !msg.content && !msg.thought && isLoading ? (
+                    {msg.role === "assistant" && !msg.content && isLoading ? (
                       <span className="thinking">Searching knowledge base…</span>
                     ) : (
                       <div className="markdown-body">
