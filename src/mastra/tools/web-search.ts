@@ -132,7 +132,7 @@ export const webSearchTool = createTool({
 /**
  * Parse DuckDuckGo HTML search results into structured data
  */
-function parseDuckDuckGoResults(
+export function parseDuckDuckGoResults(
   html: string
 ): Array<{ title: string; url: string; snippet: string }> {
   const results: Array<{ title: string; url: string; snippet: string }> = [];
@@ -187,8 +187,22 @@ function parseDuckDuckGoResults(
   return results;
 }
 
+/** Strip HTML tags from a string */
+export function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Clean DuckDuckGo redirect URLs */
-function cleanUrl(url: string): string {
+export function cleanUrl(url: string): string {
   const uddgMatch = url.match(/uddg=([^&]*)/);
   if (uddgMatch) {
     return decodeURIComponent(uddgMatch[1]);
