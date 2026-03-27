@@ -452,24 +452,31 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
 
   // 2 — Search the web
   const allResults: SearchResult[] = [];
+  const searchLimit = pLimit(3);
 
-  for (const query of SEARCH_QUERIES) {
-    console.log(`🔎 Searching: "${query}"`);
-    report.queriesRun++;
+  const searchPromises = SEARCH_QUERIES.map((query) =>
+    searchLimit(async () => {
+      console.log(`🔎 Searching: "${query}"`);
+      report.queriesRun++;
 
-    try {
-      const results = await searchWeb(query);
-      console.log(`   Found ${results.length} results`);
-      allResults.push(...results);
+      try {
+        const results = await searchWeb(query);
+        console.log(`   Found ${results.length} results for "${query}"`);
 
-      // Be polite — small delay between searches
-      await new Promise((r) => setTimeout(r, 1500));
-    } catch (err) {
-      const msg = `Search failed for "${query}": ${err}`;
-      console.error(`   ❌ ${msg}`);
-      report.errors.push(msg);
-    }
-  }
+        // Be polite — small delay between searches (reduced due to concurrency)
+        await new Promise((r) => setTimeout(r, 1000));
+        return results;
+      } catch (err) {
+        const msg = `Search failed for "${query}": ${err}`;
+        console.error(`   ❌ ${msg}`);
+        report.errors.push(msg);
+        return [];
+      }
+    })
+  );
+
+  const searchResultsArray = await Promise.all(searchPromises);
+  allResults.push(...searchResultsArray.flat());
 
   report.rawResultsFound = allResults.length;
 
