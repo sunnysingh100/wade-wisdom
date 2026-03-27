@@ -16,6 +16,7 @@
 import { runDiscovery, DiscoveryReport } from "@/scripts/discover";
 import * as fs from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
 
 export const maxDuration = 60; // Allow up to 60s for the discovery process
 
@@ -59,7 +60,7 @@ function appendReport(report: DiscoveryReport): void {
 export async function GET(req: Request) {
   // 1 — Validate the cron secret
   const { searchParams } = new URL(req.url);
-  const secret = searchParams.get("secret");
+  const secret = searchParams.get("secret") || "";
   const cronSecret = process.env.CRON_SECRET;
 
   if (!cronSecret) {
@@ -69,7 +70,11 @@ export async function GET(req: Request) {
     );
   }
 
-  if (secret !== cronSecret) {
+  // Use timingSafeEqual to prevent timing attacks
+  const secretHash = crypto.createHash("sha256").update(secret).digest();
+  const cronSecretHash = crypto.createHash("sha256").update(cronSecret).digest();
+
+  if (!crypto.timingSafeEqual(secretHash, cronSecretHash)) {
     return Response.json(
       { error: "Unauthorized. Invalid or missing secret." },
       { status: 401 }

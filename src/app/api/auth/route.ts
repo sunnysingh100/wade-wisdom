@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as crypto from "crypto";
 
 export async function POST(request: NextRequest) {
   const { password } = await request.json();
@@ -11,7 +12,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (password === sitePassword) {
+  // Use timingSafeEqual to prevent timing attacks
+  const passwordHash = crypto.createHash("sha256").update(password || "").digest();
+  const sitePasswordHash = crypto.createHash("sha256").update(sitePassword).digest();
+
+  if (crypto.timingSafeEqual(passwordHash, sitePasswordHash)) {
     const response = NextResponse.json({ success: true });
     response.cookies.set("wade-wisdom-auth", "authenticated", {
       httpOnly: true,
