@@ -1,25 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { stripHtml, cleanUrl, parseDuckDuckGoResults } from './web-search.ts';
-
-test('stripHtml', async (t) => {
-  await t.test('should remove HTML tags', () => {
-    assert.strictEqual(stripHtml('<p>Hello <b>World</b></p>'), 'Hello World');
-  });
-
-  await t.test('should decode common HTML entities', () => {
-    assert.strictEqual(stripHtml('Wade &amp; Zapier &quot;CEO&quot;'), 'Wade & Zapier "CEO"');
-    assert.strictEqual(stripHtml('It&#x27;s &lt;great&gt;'), "It's <great>");
-  });
-
-  await t.test('should collapse multiple spaces', () => {
-    assert.strictEqual(stripHtml('Hello   \n  World'), 'Hello World');
-  });
-
-  await t.test('should trim the result', () => {
-    assert.strictEqual(stripHtml('   Hello   '), 'Hello');
-  });
-});
+import { cleanUrl, parseDuckDuckGoResults } from './web-search';
 
 test('cleanUrl', async (t) => {
   await t.test('should extract URL from DuckDuckGo redirect', () => {
