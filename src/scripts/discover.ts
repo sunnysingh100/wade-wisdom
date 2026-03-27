@@ -22,7 +22,7 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import pLimit from "p-limit";
 
-import { stripHtml } from "../utils/string";
+import { stripHtml } from "../utils/string.ts";
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -372,7 +372,7 @@ function extractWithReadability(html: string, url: string): string | null {
 }
 
 /** Fallback regex extractor for pages Readability can't parse */
-function extractWithRegex(html: string): string | null {
+export function extractWithRegex(html: string): string | null {
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
