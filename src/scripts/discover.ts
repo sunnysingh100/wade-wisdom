@@ -22,7 +22,7 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import pLimit from "p-limit";
 
-import { stripHtml } from "../utils/string";
+import { stripHtml } from "../utils/string.ts";
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -404,7 +404,7 @@ function extractWithRegex(html: string): string | null {
  * - "wade" alone only counts if doc title also mentions foster/zapier (avoids false positives)
  * - Threshold: 3 points minimum
  */
-function isRelevantContent(content: string, title?: string): boolean {
+export function isRelevantContent(content: string, title?: string): boolean {
   const lower = content.toLowerCase();
   const lowerTitle = (title || "").toLowerCase();
 
@@ -688,7 +688,21 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
 // ─── CLI entry point ─────────────────────────────────────────────────
 
 // Allow running directly with: npx tsx src/scripts/discover.ts
-if (process.argv[1]?.includes("discover")) {
+import { fileURLToPath } from 'url';
+
+if (import.meta.url && import.meta.url.startsWith('file:')) {
+  const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
+  if (isMainModule) {
+    runDiscovery()
+      .then((report) => {
+        if (report.errors.length > 0) {
+          console.log("\n⚠️ Errors encountered:");
+          report.errors.forEach((e) => console.log(`  - ${e}`));
+        }
+      })
+      .catch(console.error);
+  }
+} else if (process.argv[1]?.includes("discover") && !process.argv[1]?.includes("discover.test")) {
   runDiscovery()
     .then((report) => {
       if (report.errors.length > 0) {

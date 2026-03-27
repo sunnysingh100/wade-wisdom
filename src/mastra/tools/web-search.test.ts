@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { stripHtml, cleanUrl, parseDuckDuckGoResults } from './web-search.ts';
+import { cleanUrl, parseDuckDuckGoResults } from './web-search.ts';
+import { stripHtml } from '../../utils/string.ts';
 
 test('stripHtml', async (t) => {
   await t.test('should remove HTML tags', () => {
