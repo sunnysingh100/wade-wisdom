@@ -1,6 +1,8 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
+import { stripHtml } from "../../utils/string";
+
 /**
  * Web search fallback tool.
  * When the knowledge base doesn't have answers, this tool searches the web
