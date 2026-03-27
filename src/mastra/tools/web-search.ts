@@ -1,6 +1,8 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
+import { stripHtml } from "../../utils/string";
+
 /**
  * Web search fallback tool.
  * When the knowledge base doesn't have answers, this tool searches the web
@@ -183,20 +185,6 @@ function parseDuckDuckGoResults(
   }
 
   return results;
-}
-
-/** Strip HTML tags from a string */
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 /** Clean DuckDuckGo redirect URLs */

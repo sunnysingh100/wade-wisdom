@@ -21,6 +21,8 @@ import * as crypto from "crypto";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 
+import { stripHtml } from "../utils/string";
+
 // ─── Config ───────────────────────────────────────────────────────────
 
 // Vector store credentials are read from env vars: UPSTASH_VECTOR_REST_URL, UPSTASH_VECTOR_REST_TOKEN
@@ -294,19 +296,6 @@ function parseDDGHtmlResults(html: string): SearchResult[] {
   }
 
   return results;
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function cleanUrl(url: string): string {
