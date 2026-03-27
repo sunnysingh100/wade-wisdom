@@ -8,9 +8,9 @@ export function proxy(request: NextRequest) {
 
   // Allow public paths, static assets, and Next.js internals
   if (
-    PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
+    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon.ico")
+    pathname === "/favicon.ico"
   ) {
     return NextResponse.next();
   }
