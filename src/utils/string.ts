@@ -11,3 +11,12 @@ export function stripHtml(html: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** Clean DuckDuckGo redirect URLs */
+export function cleanUrl(url: string): string {
+  const uddgMatch = url.match(/uddg=([^&]*)/);
+  if (uddgMatch) {
+    return decodeURIComponent(uddgMatch[1]);
+  }
+  return url;
+}
