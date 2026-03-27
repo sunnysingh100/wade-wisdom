@@ -121,7 +121,7 @@ function saveDiscoveryLog(log: DiscoveryLog): void {
 // ─── Content hashing ─────────────────────────────────────────────────
 
 /** Generate SHA-256 hash of normalized content for deduplication */
-function hashContent(text: string): string {
+export function hashContent(text: string): string {
   // Normalize whitespace and case for consistent hashing
   const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
   return crypto.createHash("sha256").update(normalized).digest("hex");
@@ -688,7 +688,7 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
 // ─── CLI entry point ─────────────────────────────────────────────────
 
 // Allow running directly with: npx tsx src/scripts/discover.ts
-if (process.argv[1]?.includes("discover")) {
+if (process.argv[1]?.includes("discover.ts") && !process.argv[1]?.includes("discover.test.ts")) {
   runDiscovery()
     .then((report) => {
       if (report.errors.length > 0) {
