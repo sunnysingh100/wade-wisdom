@@ -22,7 +22,7 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import pLimit from "p-limit";
 
-import { stripHtml } from "../utils/string";
+import { stripHtml, cleanUrl } from "../utils/string.ts";
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -297,12 +297,6 @@ function parseDDGHtmlResults(html: string): SearchResult[] {
   }
 
   return results;
-}
-
-function cleanUrl(url: string): string {
-  const uddgMatch = url.match(/uddg=([^&]*)/);
-  if (uddgMatch) return decodeURIComponent(uddgMatch[1]);
-  return url;
 }
 
 // ─── Content extraction ──────────────────────────────────────────────
