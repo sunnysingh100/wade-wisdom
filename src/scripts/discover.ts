@@ -20,6 +20,7 @@ import * as path from "path";
 import * as crypto from "crypto";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
+import pLimit from "p-limit";
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -507,52 +508,59 @@ export async function runDiscovery(): Promise<DiscoveryReport> {
 
   // 4 — Fetch & filter content (with content-hash deduplication)
   const documents: DiscoveredDocument[] = [];
+  const limit = pLimit(5);
 
-  for (const [url, result] of uniqueUrls) {
-    console.log(`📥 Fetching: ${url}`);
+  const fetchTasks = Array.from(uniqueUrls.entries()).map(([url, result]) =>
+    limit(async () => {
+      console.log(`📥 Fetching: ${url}`);
 
-    const content = await extractPageContent(result.url);
-    if (!content) {
-      console.log(`   ⚠️ Could not extract content, skipping`);
-      log.processedUrls[url] = {
-        addedAt: new Date().toISOString(),
-        title: `[SKIPPED] ${result.title}`,
-      };
-      continue;
-    }
+      const content = await extractPageContent(result.url);
+      if (!content) {
+        console.log(`   ⚠️ Could not extract content, skipping`);
+        log.processedUrls[url] = {
+          addedAt: new Date().toISOString(),
+          title: `[SKIPPED] ${result.title}`,
+        };
+        return;
+      }
 
-    // Content-hash deduplication: same article on different URLs
-    const contentHash = hashContent(content);
-    if (log.contentHashes![contentHash]) {
-      console.log(`   ⚠️ Duplicate content (same as ${log.contentHashes![contentHash]}), skipping`);
-      report.duplicateContentSkipped++;
-      log.processedUrls[url] = {
-        addedAt: new Date().toISOString(),
-        title: `[DUPLICATE] ${result.title}`,
-      };
-      continue;
-    }
+      // Content-hash deduplication: same article on different URLs
+      const contentHash = hashContent(content);
+      if (log.contentHashes![contentHash]) {
+        console.log(
+          `   ⚠️ Duplicate content (same as ${log.contentHashes![contentHash]}), skipping`
+        );
+        report.duplicateContentSkipped++;
+        log.processedUrls[url] = {
+          addedAt: new Date().toISOString(),
+          title: `[DUPLICATE] ${result.title}`,
+        };
+        return;
+      }
 
-    if (!isRelevantContent(content, result.title)) {
-      console.log(`   ⚠️ Content not relevant enough, skipping`);
-      log.processedUrls[url] = {
-        addedAt: new Date().toISOString(),
-        title: `[IRRELEVANT] ${result.title}`,
-      };
-      continue;
-    }
+      if (!isRelevantContent(content, result.title)) {
+        console.log(`   ⚠️ Content not relevant enough, skipping`);
+        log.processedUrls[url] = {
+          addedAt: new Date().toISOString(),
+          title: `[IRRELEVANT] ${result.title}`,
+        };
+        return;
+      }
 
-    console.log(`   ✅ Relevant content found (${content.length} chars)`);
-    documents.push({
-      title: result.title,
-      url: result.url,
-      content,
-      snippet: result.snippet,
-    });
+      console.log(`   ✅ Relevant content found (${content.length} chars)`);
+      documents.push({
+        title: result.title,
+        url: result.url,
+        content,
+        snippet: result.snippet,
+      });
 
-    // Be polite — delay between fetches
-    await new Promise((r) => setTimeout(r, 1000));
-  }
+      // Be polite — small delay between fetches (reduced due to concurrency)
+      await new Promise((r) => setTimeout(r, 500));
+    })
+  );
+
+  await Promise.all(fetchTasks);
 
   console.log(`\n📄 ${documents.length} relevant documents to ingest\n`);
 
